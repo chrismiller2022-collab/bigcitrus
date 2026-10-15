@@ -7,7 +7,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<meta name="description" content="Care calendar for a backyard orange tree in Savannah, GA, driven by the live forecast and UGA Extension guidance.">
+<meta name="description" content="Care calendar for a backyard orange tree, driven by your local forecast, climate and state Extension guidance.">
 <style>
   :root {
     --bg: #fffaf3; --card: #ffffff; --ink: #2b2a28; --muted: #6b665e; --line: #ece4d6;
@@ -51,29 +51,44 @@
   select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
   .muted { color: var(--muted); font-size: .9rem; }
   a { color: var(--blue); }
+  .results { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .results button { text-align: left; }
+  .verdict { margin: 0; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 </style>
 </head>
 <body>
 <main>
   <h1>🍊 Orange Tree Care</h1>
-  <p class="sub">Savannah, GA (USDA zone 9a) · <span id="today"></span></p>
+  <p class="sub"><span id="place"></span> · <span id="today"></span></p>
 
-  <div class="card row">
-    <label>Tree age:
-      <select id="age">
-        <option value="young">Young (planted 1–4 years ago)</option>
-        <option value="mature">Mature (5+ years)</option>
-      </select>
-    </label>
-    <label>Setting:
-      <select id="setting">
-        <option value="ground">In the ground</option>
-        <option value="pot">In a container</option>
-      </select>
-    </label>
+  <div class="card">
+    <form id="loc-form" class="row">
+      <input id="loc-q" type="text" placeholder="City, state or ZIP (US)" aria-label="Location" autocomplete="postal-code">
+      <button class="btn" type="submit">Set location</button>
+      <button id="loc-reset" class="btn alt" type="button">Use Savannah, GA</button>
+    </form>
+    <div id="loc-results" class="results"></div>
+    <div class="row" style="margin-top:12px">
+      <label>Tree age:
+        <select id="age">
+          <option value="young">Young (planted 1–4 years ago)</option>
+          <option value="mature">Mature (5+ years)</option>
+        </select>
+      </label>
+      <label>Setting:
+        <select id="setting">
+          <option value="ground">In the ground</option>
+          <option value="pot">In a container</option>
+        </select>
+      </label>
+    </div>
+    <p class="muted" style="margin-bottom:0">Your location and settings are saved only in this browser.</p>
   </div>
 
-  <div id="status" class="card"><span class="muted">Loading Savannah forecast…</span></div>
+  <div id="climate" class="card"></div>
+
+  <div id="status" class="card"><span class="muted">Loading forecast…</span></div>
 
   <div class="card">
     <h2>Do this today</h2>
@@ -88,8 +103,8 @@
 
   <div class="card">
     <h2>Sync with Google Calendar</h2>
-    <p style="margin-top:0">Subscribe once and your calendar gets the seasonal reminders (fertilizing, soil banking, pruning, harvest)
-      plus "cover the tree tonight" events with a reminder whenever a freeze is forecast. It follows the tree age and setting chosen above.</p>
+    <p style="margin-top:0">Subscribe once and your calendar gets the seasonal reminders for your location (fertilizing, cold prep, pruning, harvest)
+      plus "cover the tree tonight" events with a reminder whenever a freeze is forecast. It follows the location, tree age and setting chosen above.</p>
     <div class="row">
       <a id="cal-google" class="btn" target="_blank" rel="noopener">Add to Google Calendar</a>
       <a id="cal-download" class="btn alt" download="orange-tree-care.ics">Download .ics</a>
@@ -108,87 +123,116 @@
     <div id="months" class="months"></div>
   </div>
 
-  <div class="card muted">
-    <b>Sources.</b> Based on UGA Cooperative Extension guidance:
-    <a href="https://site.extension.uga.edu/colquitthomeowners/2022/01/cold-protection-and-citrus" target="_blank" rel="noopener">Cold Protection and Citrus</a>,
-    <a href="https://fieldreport.caes.uga.edu/news/oranges-grapefruits-and-tangerines-from-georgia/" target="_blank" rel="noopener">Oranges, grapefruits and tangerines from Georgia?</a>,
-    and UGA bulletin B&nbsp;1589 <i>Freeze Injury and Protection Practices in Georgia Citrus</i> (search it on
-    <a href="https://extension.uga.edu/publications.html" target="_blank" rel="noopener">extension.uga.edu/publications</a>).
-    Temperature thresholds are approximate; sweet oranges are less cold-hardy than satsumas. Forecast from
-    <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>; alerts from the
-    <a href="https://www.weather.gov/chs/" target="_blank" rel="noopener">National Weather Service (Charleston office)</a>. For anything odd on your tree, call the Chatham County Extension office.
-  </div>
+  <div id="sources" class="card muted"></div>
 </main>
 
 <script src="lib/care.js"></script>
 <script>
-const { T, CALENDAR } = Care;
+const { T } = Care;
 const $ = id => document.getElementById(id);
+const h = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtDay = d => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 const dayOf = iso => new Date(iso + "T12:00");
 const sum = a => a.reduce((x, y) => x + (y || 0), 0);
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+};
 
-function loadPrefs() {
-  try {
-    $("age").value = localStorage.getItem("citrus-age") || "young";
-    $("setting").value = localStorage.getItem("citrus-setting") || "ground";
-  } catch (e) {}
+const isDefault = l => l.lat === Care.DEFAULT_LOC.lat && l.lon === Care.DEFAULT_LOC.lon;
+function loadLoc() {
+  const p = new URLSearchParams(location.search);
+  const fromUrl = Care.locFromParams(k => p.get(k));
+  if (fromUrl) return fromUrl;
+  try { const s = JSON.parse(store.get("citrus-loc")); if (s && typeof s.lat === "number") return s; } catch (e) {}
+  return Care.DEFAULT_LOC;
 }
-function savePrefs() {
-  try {
-    localStorage.setItem("citrus-age", $("age").value);
-    localStorage.setItem("citrus-setting", $("setting").value);
-  } catch (e) {}
+
+let LOC = loadLoc(), CLIMATE = isDefault(LOC) ? Care.DEFAULT_CLIMATE : null, WX = null, ALERTS = [];
+
+function opts() {
+  return { state: LOC.state, climate: CLIMATE || Care.DEFAULT_CLIMATE, age: $("age").value, setting: $("setting").value };
 }
 
-let WX = null, ALERTS = [];
+// ---- location search (Open-Meteo geocoding, US only) ----
+async function search(q) {
+  const parts = q.split(",").map(s => s.trim()).filter(Boolean);
+  const name = parts[0], st = (parts[1] || "").toLowerCase();
+  const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=10&countryCode=US`);
+  const res = ((await r.json()).results || []).filter(x => x.admin1);
+  return st ? res.filter(x => x.admin1.toLowerCase().startsWith(st) || STATE_ABBR[x.admin1] === st.toUpperCase()) : res;
+}
+const STATE_ABBR = { Alabama: "AL", Alaska: "AK", Arizona: "AZ", Arkansas: "AR", California: "CA", Colorado: "CO", Connecticut: "CT",
+  Delaware: "DE", Florida: "FL", Georgia: "GA", Hawaii: "HI", Idaho: "ID", Illinois: "IL", Indiana: "IN", Iowa: "IA", Kansas: "KS",
+  Kentucky: "KY", Louisiana: "LA", Maine: "ME", Maryland: "MD", Massachusetts: "MA", Michigan: "MI", Minnesota: "MN", Mississippi: "MS",
+  Missouri: "MO", Montana: "MT", Nebraska: "NE", Nevada: "NV", "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM",
+  "New York": "NY", "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK", Oregon: "OR", Pennsylvania: "PA",
+  "Rhode Island": "RI", "South Carolina": "SC", "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT",
+  Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI", Wyoming: "WY", "District of Columbia": "DC" };
 
+function setLoc(l, save) {
+  LOC = l; CLIMATE = isDefault(l) ? Care.DEFAULT_CLIMATE : null; WX = null; ALERTS = [];
+  if (save) { if (isDefault(l)) store.del("citrus-loc"); else store.set("citrus-loc", JSON.stringify(l)); }
+  // Drop any shared-link params once the viewer picks their own location.
+  if (location.search) history.replaceState(null, "", location.pathname);
+  $("loc-results").innerHTML = "";
+  render(); refresh();
+}
+
+// ---- data ----
+async function getClimate() {
+  if (isDefault(LOC)) return Care.DEFAULT_CLIMATE;
+  const r = await fetch(`/api/climate?lat=${LOC.lat.toFixed(1)}&lon=${LOC.lon.toFixed(1)}${LOC.zip ? `&zip=${LOC.zip}` : ""}`);
+  if (!r.ok) throw new Error("climate");
+  return r.json();
+}
 async function getWeather() {
-  const r = await fetch(Care.forecastUrl(7));
+  const r = await fetch(Care.forecastUrl(LOC, 7));
   if (!r.ok) throw new Error("forecast unavailable");
   return r.json();
 }
 async function getAlerts() {
   try {
-    const r = await fetch(Care.ALERTS_URL, { headers: { Accept: "application/geo+json" } });
-    return r.ok ? (await r.json()).features.map(f => f.properties) : [];
+    const r = await fetch(Care.alertsUrl(LOC), { headers: { Accept: "application/geo+json" } });
+    return r.ok ? (await r.json()).features.map(f => f.properties).filter(a => Care.TREE_ALERTS.test(a.event)) : [];
   } catch (e) { return []; }
 }
 
-function partOfDay(h) {
-  if (h < 5) return "night";
-  if (h < 10) return "morning";
-  if (h < 16) return "midday";
-  if (h < 20) return "evening";
+function partOfDay(hr) {
+  if (hr < 5) return "night";
+  if (hr < 10) return "morning";
+  if (hr < 16) return "midday";
+  if (hr < 20) return "evening";
   return "night";
 }
 
 function buildTasks(now, wx) {
-  const age = $("age").value, pot = $("setting").value === "pot";
+  const o = opts(), pot = o.setting === "pot", g = Care.guideFor(LOC.state);
   const month = now.getMonth(), part = partOfDay(now.getHours());
   const out = [];
 
   ALERTS.forEach(a => out.push({ cls: Care.COLD_ALERTS.test(a.event) ? "alert" : "watch",
-    items: [`⚠️ <b>National Weather Service: ${a.event}</b>`, a.headline || ""].concat(a.instruction ? [a.instruction] : []) }));
+    items: [`⚠️ <b>National Weather Service: ${h(a.event)}</b>`, h(a.headline || "")].concat(a.instruction ? [h(a.instruction)] : []) }));
 
   if (wx) {
     const d = wx.daily, ti = d.time.indexOf(wx.todayKey);
     const day = i => ({ date: dayOf(d.time[i]), lo: d.temperature_2m_min[i], hi: d.temperature_2m_max[i],
       wind: d.wind_speed_10m_max[i], gust: d.wind_gusts_10m_max[i], pop: d.precipitation_probability_max[i] });
-    const next = [0, 1, 2].map(k => ti + k).filter(i => i < d.time.length).map(day);
-    const freeze = next.find(x => x.lo <= T.protect);
+    const next = [0, 1, 2].map(k => ti + k).filter(i => i >= 0 && i < d.time.length).map(day);
+    const freeze = next.find(x => x.lo <= T.protect || (pot && x.lo <= T.frost));
     const frost = next.find(x => x.lo <= T.frost);
     const hot = next[0] && next[0].hi >= T.hot;
 
     if (freeze) {
-      const p = ["🔴 <b>Freeze coming " + fmtDay(freeze.date) + " (low " + Math.round(freeze.lo) + "°F).</b>"];
+      const p = ["🔴 <b>" + (freeze.lo <= T.protect ? "Freeze" : "Frost") + " coming " + fmtDay(freeze.date) + " (low " + Math.round(freeze.lo) + "°F).</b>"];
       if (pot) p.push("Move the container into a garage or enclosed porch the evening before.");
       else {
         p.push("1–2 days before: water the soil if it's dry (moist soil releases heat overnight).");
         p.push("Late afternoon, before sunset: drape frost cloth all the way to the ground (not just over the top) so it traps soil heat; add incandescent (not LED) string lights under it.");
         if (freeze.wind >= T.windy || freeze.gust >= T.gusty)
           p.push(`💨 Windy freeze (wind ${Math.round(freeze.wind)} mph, gusts ${Math.round(freeze.gust)} mph): weigh the cloth edges down with bricks or clips. Wind strips heat out of covers, so the lights matter more.`);
-        if (age === "young") p.push("Young tree: make sure the soil bank or trunk wrap is in place.");
+        if (o.age === "young" && g.bank) p.push("Young tree: " + g.bank);
         p.push("The coldest point is just before sunrise. Uncover mid-morning once it's above freezing so the tree doesn't overheat.");
         if (freeze.lo <= T.hard) p.push("Hard freeze (≤ 26°F): pick any ripe fruit beforehand.");
       }
@@ -199,69 +243,104 @@ function buildTasks(now, wx) {
     }
 
     if (hot) {
-      const h = ["🟠 Hot day (" + Math.round(next[0].hi) + "°F)."];
-      h.push(part === "morning" ? "Good time to water now, before the heat." :
+      const x = ["🟠 Hot day (" + Math.round(next[0].hi) + "°F)."];
+      x.push(part === "morning" ? "Good time to water now, before the heat." :
              part === "midday" ? "Don't spray oils or soaps in this heat; wait for evening if it's below 90°F." :
              "Water early tomorrow morning if the soil is dry 2 in. down.");
-      if (pot) h.push("Containers dry out fast in heat — check daily.");
-      out.push({ cls: "watch", items: h });
+      if (pot) x.push("Containers dry out fast in heat — check daily.");
+      out.push({ cls: "watch", items: x });
     }
 
     // Watering: compare last week's rain with water lost to evaporation and the tree (ET0).
-    const rain7 = sum(d.precipitation_sum.slice(Math.max(0, ti - 7), ti));
-    const et7 = sum(d.et0_fao_evapotranspiration.slice(Math.max(0, ti - 7), ti));
-    const deficit = et7 - rain7;
-    const rainSoon = next.slice(0, 2).find(x => x.pop >= 60);
-    const growing = month >= 2 && month <= 9;
-    const need = pot ? 0.4 : growing ? 0.75 : 1.25;
-    const facts = `Last 7 days: ${rain7.toFixed(2)} in. rain vs ${et7.toFixed(2)} in. lost to evaporation and the tree.`;
-    if (deficit > need && rainSoon) {
-      out.push({ cls: "ok", items: [`💧 Soil is drying out, but rain is likely ${fmtDay(rainSoon.date)} (${rainSoon.pop}% chance) — hold off watering.`, facts] });
-    } else if (deficit > need) {
-      out.push({ cls: "watch", items: [`💧 Water deeply ${part === "morning" ? "this morning" : "early tomorrow morning"} — about ${deficit.toFixed(1)} in. short this week` +
-        (growing ? "." : " (the tree is mostly dormant, so one soak is plenty)."), facts] });
-    } else {
-      out.push({ cls: "ok", items: ["💧 No watering needed — rain has kept up with what the tree uses.", facts] });
+    if (ti > 0) {
+      const rain7 = sum(d.precipitation_sum.slice(Math.max(0, ti - 7), ti));
+      const et7 = sum(d.et0_fao_evapotranspiration.slice(Math.max(0, ti - 7), ti));
+      const deficit = et7 - rain7;
+      const rainSoon = next.slice(0, 2).find(x => x.pop >= 60);
+      const growing = month >= 2 && month <= 9;
+      const need = pot ? 0.4 : growing ? 0.75 : 1.25;
+      const facts = `Last 7 days: ${rain7.toFixed(2)} in. rain vs ${et7.toFixed(2)} in. lost to evaporation and the tree.`;
+      if (deficit > need && rainSoon) {
+        out.push({ cls: "ok", items: [`💧 Soil is drying out, but rain is likely ${fmtDay(rainSoon.date)} (${rainSoon.pop}% chance) — hold off watering.`, facts] });
+      } else if (deficit > need) {
+        out.push({ cls: "watch", items: [`💧 Water deeply ${part === "morning" ? "this morning" : "early tomorrow morning"} — about ${deficit.toFixed(1)} in. short this week` +
+          (growing ? "." : " (the tree grows slowly now, so one soak is plenty)."), facts, h(g.water)] });
+      } else {
+        out.push({ cls: "ok", items: ["💧 No watering needed — rain has kept up with what the tree uses.", facts] });
+      }
     }
   }
 
-  // Fertilizer reminders keyed to UGA dates for this year
+  // Seasonal reminders due within the next week (or the last 3 days).
   const y = now.getFullYear();
-  const fert = [new Date(y, 2, 15), new Date(y, 4, 1), new Date(y, 5, 15)];
-  const soon = fert.find(f => (f - now) / 864e5 >= -3 && (f - now) / 864e5 <= 7);
-  if (soon) out.push({ cls: "ok", items: ["🌱 Fertilize around " + fmtDay(soon) + " with a citrus fertilizer. Spread it evenly under the canopy, out past the drip line, and water it in." +
-    (age === "young" ? " Young trees: use a smaller amount, following the label for the tree's size." : "")] });
-
-  out.push({ cls: "", items: ["<b>This month:</b>"].concat(CALENDAR[month].tasks) });
+  Care.plan(y, o).concat(Care.plan(y + 1, o)).forEach(e => {
+    const days = (dayOf(e.date) - now) / 864e5;
+    if (days >= -3 && days <= 7) out.push({ cls: "ok", items: [`🌱 <b>${h(e.title)}</b> — ${fmtDay(dayOf(e.date))}`, h(e.desc)] });
+  });
   return out;
 }
 
 function renderCalendarLinks() {
-  const qs = `?age=${$("age").value}&setting=${$("setting").value}`;
-  const https = `${location.origin}/calendar.ics${qs}`;
-  const webcal = https.replace(/^https?:/, "webcal:");
-  $("cal-google").href = "https://calendar.google.com/calendar/render?cid=" + encodeURIComponent(webcal);
+  const p = new URLSearchParams();
+  if (!isDefault(LOC)) {
+    p.set("lat", LOC.lat.toFixed(4)); p.set("lon", LOC.lon.toFixed(4)); p.set("name", LOC.name); p.set("state", LOC.state);
+    if (LOC.zip) p.set("zip", LOC.zip);
+  }
+  p.set("age", $("age").value); p.set("setting", $("setting").value);
+  const https = `${location.origin}/calendar.ics?${p}`;
+  $("cal-google").href = "https://calendar.google.com/calendar/render?cid=" + encodeURIComponent(https.replace(/^https?:/, "webcal:"));
   $("cal-url").value = https;
   $("cal-download").href = https;
 }
 
+function renderClimate() {
+  const c = CLIMATE, g = Care.guideFor(LOC.state);
+  if (!c) { $("climate").className = "card"; $("climate").innerHTML = '<span class="muted">Looking up this location\'s climate…</span>'; return; }
+  const v = Care.verdict(c);
+  const cls = { great: "ok", good: "ok", ok: "ok", marginal: "watch", pot: "alert", unknown: "" }[v.level];
+  const fmt = s => s ? new Date(`2001-${s}T12:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+  const ff = Care.frostFree(c);
+  $("climate").className = "card " + cls;
+  $("climate").innerHTML = `<h2>Your climate</h2><p class="verdict">${h(v.text)}</p>
+    <div class="facts">
+      <span class="pill">USDA zone ${h(c.zone)}${c.zoneSource === "estimate" ? " (estimated)" : ""}</span>
+      ${ff ? '<span class="pill">Frost is rare</span>' :
+        `<span class="pill">Frost usually over by ${fmt(c.lastFrost)}</span><span class="pill">First frost usually after ${fmt(c.firstFrost)}</span>`}
+      <span class="pill">Guidance: ${h(g.org)}</span>
+    </div>
+    ${g.notes.map(n => `<p style="margin:10px 0 0">📌 ${h(n)}</p>`).join("")}
+    <p class="muted" style="margin:8px 0 0">Frost dates are cautious estimates from 20 years of local weather history (frost is over by then in about 4 of 5 years).</p>`;
+}
+
+function renderSources() {
+  const g = Care.guideFor(LOC.state);
+  $("sources").innerHTML = `<b>Sources.</b> Care schedule from ${h(g.org)}: ` +
+    g.links.map(([t, u]) => `<a href="${h(u)}" target="_blank" rel="noopener">${h(t)}</a>`).join(", ") + `. ` +
+    `Thresholds are approximate; sweet oranges are less cold-hardy than satsumas. Forecast and climate history from
+    <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>; hardiness zones from the
+    <a href="https://planthardiness.ars.usda.gov" target="_blank" rel="noopener">USDA Plant Hardiness Zone Map</a>; alerts from the
+    <a href="https://www.weather.gov" target="_blank" rel="noopener">National Weather Service</a>. For anything odd on your tree, call your county Extension office.`;
+}
+
 function render() {
   const now = new Date();
+  $("place").textContent = `${LOC.name}${LOC.state ? ", " + (STATE_ABBR[LOC.state] || LOC.state) : ""}` + (CLIMATE ? ` (zone ${CLIMATE.zone})` : "");
   $("today").textContent = now.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
   $("yr").textContent = now.getFullYear();
+  renderClimate(); renderSources();
 
   if (WX) {
     const c = Math.round(WX.current.temperature_2m), w = Math.round(WX.current.wind_speed_10m);
     const s = c <= T.protect ? ["alert", "Freezing — the tree should be covered right now."]
             : c <= T.frost ? ["watch", "Near freezing — watch the overnight low."]
             : c >= T.hot ? ["watch", "Hot — water early, skip spraying."]
-            : c < T.cool ? ["ok", "Cool — the tree is mostly dormant."]
+            : c < T.cool ? ["ok", "Cool — the tree is mostly resting."]
             : ["ok", "Comfortable growing weather."];
     $("status").className = "card " + s[0];
     $("status").innerHTML = `<div class="row"><span class="now">${c}°F</span><span>${s[1]}</span>` +
       `<span class="pill">💨 ${w} mph</span><span class="pill">${partOfDay(now.getHours())}</span></div>`;
 
-    const d = WX.daily, start = d.time.indexOf(WX.todayKey);
+    const d = WX.daily, start = Math.max(0, d.time.indexOf(WX.todayKey));
     $("forecast").innerHTML = d.time.slice(start).map((t, k) => {
       const i = start + k, lo = d.temperature_2m_min[i], hi = d.temperature_2m_max[i];
       const cls = lo <= T.protect ? "freeze" : lo <= T.frost ? "frost" : hi >= T.hot ? "hot" : "";
@@ -269,29 +348,69 @@ function render() {
         `<span class="mini">🌧 ${d.precipitation_probability_max[i]}%</span>` +
         `<span class="mini">💨 ${Math.round(d.wind_speed_10m_max[i])} mph</span></div>`;
     }).join("");
+  } else {
+    $("forecast").innerHTML = "";
   }
 
   $("tasks").innerHTML = buildTasks(now, WX).map(g =>
-    `<div class="card ${g.cls}" style="margin-bottom:10px"><ul style="list-style:none;padding:0">${g.items.map(i => `<li>${i}</li>`).join("")}</ul></div>`).join("");
+    `<div class="card ${g.cls}" style="margin-bottom:10px"><ul style="list-style:none;padding:0">${g.items.map(i => `<li>${i}</li>`).join("")}</ul></div>`).join("") ||
+    '<p class="muted">Nothing urgent today. See this month in the calendar below.</p>';
 
-  $("months").innerHTML = CALENDAR.map((c, i) =>
-    `<div class="month ${i === now.getMonth() ? "current" : ""}"><h3>${c.m}</h3><ul>${c.tasks.map(t => `<li>${t}</li>`).join("")}</ul></div>`).join("");
+  $("months").innerHTML = !CLIMATE ? '<p class="muted">Building your calendar…</p>' : Care.monthly(now.getFullYear(), opts()).map((c, i) =>
+    `<div class="month ${i === now.getMonth() ? "current" : ""}"><h3>${c.m}</h3><ul>${c.tasks.map(t => `<li>${h(t)}</li>`).join("")}</ul></div>`).join("");
   renderCalendarLinks();
 }
 
-async function init() {
-  loadPrefs();
-  ["age", "setting"].forEach(id => $(id).addEventListener("change", () => { savePrefs(); render(); }));
+async function refresh() {
+  const loc = LOC;
+  $("status").className = "card"; $("status").innerHTML = '<span class="muted">Loading forecast…</span>';
+  const [climate, wx, alerts] = await Promise.all([getClimate().catch(() => null), getWeather().catch(() => null), getAlerts()]);
+  if (loc !== LOC) return; // location changed while loading
+  CLIMATE = climate || CLIMATE;
+  if (!climate && !CLIMATE) CLIMATE = { zone: "?", zoneSource: "estimate", lastFrost: null, firstFrost: null, frostYears: 0 };
+  // In a climate too cold for in-ground oranges, default new visitors to the container setup.
+  if (CLIMATE && Care.zoneNum(CLIMATE.zone) !== null && Care.zoneNum(CLIMATE.zone) < 8.5 && !store.get("citrus-setting")) $("setting").value = "pot";
+  ALERTS = alerts;
+  if (wx) { WX = wx; WX.todayKey = Care.todayKey(wx.timezone); }
+  render();
+  if (!wx) $("status").innerHTML = '<span class="muted">Couldn\'t load the forecast. Showing the seasonal calendar only.</span>';
+}
+
+function init() {
+  $("age").value = store.get("citrus-age") || "young";
+  $("setting").value = store.get("citrus-setting") || "ground";
+  ["age", "setting"].forEach(id => $(id).addEventListener("change", () => { store.set("citrus-" + id, $(id).value); render(); }));
   $("cal-copy").addEventListener("click", () => {
     $("cal-url").select();
     try { navigator.clipboard.writeText($("cal-url").value); $("cal-copy").textContent = "Copied"; } catch (e) {}
   });
-  render();
-  const [wx, alerts] = await Promise.all([getWeather().catch(() => null), getAlerts()]);
-  ALERTS = alerts;
-  if (wx) { WX = wx; WX.todayKey = Care.todayKey(); }
-  else $("status").innerHTML = '<span class="muted">Couldn\'t load the forecast. Showing the seasonal calendar only.</span>';
-  render();
+  $("loc-reset").addEventListener("click", () => setLoc(Care.DEFAULT_LOC, true));
+  $("loc-form").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const q = $("loc-q").value.trim();
+    if (!q) return;
+    $("loc-results").innerHTML = '<span class="muted">Searching…</span>';
+    let res = [];
+    try { res = await search(q); } catch (e) {
+      $("loc-results").innerHTML = '<span class="muted">Location search is unavailable right now. Try again in a moment.</span>'; return;
+    }
+    if (!res.length) { $("loc-results").innerHTML = '<span class="muted">No US match. Try "City, ST" or a 5-digit ZIP.</span>'; return; }
+    const pick = r => {
+      const zip = /^\d{5}$/.test(q) ? q : (r.postcodes || [])[0] || "";
+      setLoc({ name: r.name, state: r.admin1, lat: r.latitude, lon: r.longitude, zip }, true);
+      $("loc-q").value = "";
+    };
+    if (res.length === 1) return pick(res[0]);
+    $("loc-results").innerHTML = "";
+    res.slice(0, 6).forEach(r => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn alt";
+      b.textContent = `${r.name}, ${r.admin1}${r.admin2 ? " (" + r.admin2 + ")" : ""}`;
+      b.addEventListener("click", () => pick(r));
+      $("loc-results").appendChild(b);
+    });
+  });
+  render(); refresh();
 }
 init();
 setInterval(render, 10 * 60 * 1000);

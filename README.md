@@ -1,12 +1,13 @@
 # Big Citrus 🍊
 
-Care calendar for a backyard orange tree in Savannah, GA, based on UGA Extension guidance and the live forecast.
+Care calendar for a backyard orange tree. Defaults to Savannah, GA (UGA Extension guidance); anyone can enter a US city, state or ZIP.
 
-- **Page (`index.html`)**: today's tasks by temperature, time of day and month; 7-day forecast with freeze, frost, heat, wind and rain chance; watering advice from rain vs. evapotranspiration; National Weather Service alerts; year-round calendar.
-- **Calendar feed (`/calendar.ics`)**: Vercel function in `api/calendar.js`. Subscribe from Google Calendar (Other calendars → From URL). Query options: `?age=young|mature&setting=ground|pot`.
-- **Shared data (`lib/care.js`)**: monthly tasks, dated reminders, thresholds and weather logic.
+- **Page (`index.html`)**: location search; climate card (USDA hardiness zone, cautious frost dates, how well oranges fit); today's tasks from the live forecast (freeze, frost, heat, wind, rain chance, watering from rain vs. evapotranspiration); tree-relevant National Weather Service alerts; year-round calendar; sources for the state.
+- **State guidance (`lib/care.js`)**: GA (UGA), SC (Clemson HGIC), FL (UF/IFAS), AL (ACES/Auburn), MS (Gulf Coast/Auburn), LA (LSU AgCenter), TX (AgriLife), AZ (Univ. of Arizona), CA (UC ANR), HI (CTAHR). Other states get generic container guidance and a link to their Extension service.
+- **Climate (`api/climate.js`, `lib/climate.js`)**: zone from the USDA 2023 map by ZIP (phzmapi.org), else estimated; frost dates from 20 years of Open-Meteo history. Cached at the edge for 30 days.
+- **Calendar feed (`/calendar.ics`, `api/calendar.js`)**: seasonal reminders plus forecast-driven freeze events. Params: `lat, lon, name, state, zip, age=young|mature, setting=ground|pot`. No params = Savannah.
 
-Weather from [Open-Meteo](https://open-meteo.com) (free, no key) and [api.weather.gov](https://www.weather.gov/documentation/services-web-api).
+Your location and settings are stored only in your browser (localStorage). Nothing is stored on the server.
 
 ## Deploy
-Import the repo in Vercel with the default settings (Framework: Other, no build command). No environment variables needed.
+Import in Vercel with default settings (Framework: Other, no build command, no environment variables).
