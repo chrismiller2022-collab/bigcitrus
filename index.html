@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orange Tree Care</title>
+<meta name="description" content="Care calendar for a backyard orange tree in Savannah, GA, driven by the live forecast and UGA Extension guidance.">
+<style>
+  :root {
+    --bg: #fffaf3; --card: #ffffff; --ink: #2b2a28; --muted: #6b665e; --line: #ece4d6;
+    --orange: #e8771a; --green: #2f7d4f; --blue: #2a6fb0; --red: #c0392b; --amber: #b7791f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1a18; --card: #24221f; --ink: #f1ece4; --muted: #a8a196; --line: #38342e;
+            --orange: #f0913f; --green: #5cb98a; --blue: #6ea8e0; --red: #e06b5d; --amber: #e0a94a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { margin: 0 0 4px; font-size: 1.6rem; }
+  h2 { font-size: 1.15rem; margin: 0 0 10px; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .now { font-size: 2.2rem; font-weight: 700; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .85rem; border: 1px solid var(--line); }
+  .alert { border-left: 5px solid var(--red); }
+  .watch { border-left: 5px solid var(--amber); }
+  .ok { border-left: 5px solid var(--green); }
+  ul { margin: 6px 0 0; padding-left: 20px; }
+  li { margin: 4px 0; }
+  .days { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+  .day { border: 1px solid var(--line); border-radius: 10px; padding: 8px; text-align: center; font-size: .9rem; }
+  .day b { display: block; }
+  .day .mini { display: block; color: var(--muted); font-size: .8rem; }
+  input[type=text] { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); flex: 1; min-width: 0; }
+  .btn { display: inline-block; padding: 6px 14px; border-radius: 8px; background: var(--orange); color: #fff; text-decoration: none; border: 0; font: inherit; cursor: pointer; }
+  .btn.alt { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  .day.freeze { border-color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
+  .day.frost { border-color: var(--amber); background: color-mix(in srgb, var(--amber) 10%, transparent); }
+  .day.hot { border-color: var(--orange); }
+  .months { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+  .month { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .month.current { border: 2px solid var(--orange); }
+  .month h3 { margin: 0 0 4px; font-size: 1rem; }
+  .month ul { font-size: .9rem; }
+  select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  .muted { color: var(--muted); font-size: .9rem; }
+  a { color: var(--blue); }
+</style>
+</head>
+<body>
+<main>
+  <h1>🍊 Orange Tree Care</h1>
+  <p class="sub">Savannah, GA (USDA zone 9a) · <span id="today"></span></p>
+
+  <div class="card row">
+    <label>Tree age:
+      <select id="age">
+        <option value="young">Young (planted 1–4 years ago)</option>
+        <option value="mature">Mature (5+ years)</option>
+      </select>
+    </label>
+    <label>Setting:
+      <select id="setting">
+        <option value="ground">In the ground</option>
+        <option value="pot">In a container</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="status" class="card"><span class="muted">Loading Savannah forecast…</span></div>
+
+  <div class="card">
+    <h2>Do this today</h2>
+    <div id="tasks"></div>
+  </div>
+
+  <div class="card">
+    <h2>Next 7 days</h2>
+    <div id="forecast" class="days"></div>
+    <p class="muted">🌧 = chance of rain · 💨 = max wind. Red = protect the tree (low ≤ 28°F). Amber = frost watch (low ≤ 32°F). Orange = heat (high ≥ 90°F).</p>
+  </div>
+
+  <div class="card">
+    <h2>Sync with Google Calendar</h2>
+    <p style="margin-top:0">Subscribe once and your calendar gets the seasonal reminders (fertilizing, soil banking, pruning, harvest)
+      plus "cover the tree tonight" events with a reminder whenever a freeze is forecast. It follows the tree age and setting chosen above.</p>
+    <div class="row">
+      <a id="cal-google" class="btn" target="_blank" rel="noopener">Add to Google Calendar</a>
+      <a id="cal-download" class="btn alt" download="orange-tree-care.ics">Download .ics</a>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <input id="cal-url" type="text" readonly aria-label="Calendar feed URL">
+      <button id="cal-copy" class="btn alt" type="button">Copy URL</button>
+    </div>
+    <p class="muted">If the button doesn't work: in Google Calendar on a computer, go to Other calendars → + → From URL and paste the link.
+      Google refreshes subscribed calendars on its own schedule (usually every 12–24 hours), so a freeze forecast can show up late —
+      the alerts on this page are always current.</p>
+  </div>
+
+  <div class="card">
+    <h2>Year-round calendar <span id="yr" class="muted"></span></h2>
+    <div id="months" class="months"></div>
+  </div>
+
+  <div class="card muted">
+    <b>Sources.</b> Based on UGA Cooperative Extension guidance:
+    <a href="https://site.extension.uga.edu/colquitthomeowners/2022/01/cold-protection-and-citrus" target="_blank" rel="noopener">Cold Protection and Citrus</a>,
+    <a href="https://fieldreport.caes.uga.edu/news/oranges-grapefruits-and-tangerines-from-georgia/" target="_blank" rel="noopener">Oranges, grapefruits and tangerines from Georgia?</a>,
+    and UGA bulletin B&nbsp;1589 <i>Freeze Injury and Protection Practices in Georgia Citrus</i> (search it on
+    <a href="https://extension.uga.edu/publications.html" target="_blank" rel="noopener">extension.uga.edu/publications</a>).
+    Temperature thresholds are approximate; sweet oranges are less cold-hardy than satsumas. Forecast from
+    <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>; alerts from the
+    <a href="https://www.weather.gov/chs/" target="_blank" rel="noopener">National Weather Service (Charleston office)</a>. For anything odd on your tree, call the Chatham County Extension office.
+  </div>
+</main>
+
+<script src="lib/care.js"></script>
+<script>
+const { T, CALENDAR } = Care;
+const $ = id => document.getElementById(id);
+const fmtDay = d => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+const dayOf = iso => new Date(iso + "T12:00");
+const sum = a => a.reduce((x, y) => x + (y || 0), 0);
+
+function loadPrefs() {
+  try {
+    $("age").value = localStorage.getItem("citrus-age") || "young";
+    $("setting").value = localStorage.getItem("citrus-setting") || "ground";
+  } catch (e) {}
+}
+function savePrefs() {
+  try {
+    localStorage.setItem("citrus-age", $("age").value);
+    localStorage.setItem("citrus-setting", $("setting").value);
+  } catch (e) {}
+}
+
+let WX = null, ALERTS = [];
+
+async function getWeather() {
+  const r = await fetch(Care.forecastUrl(7));
+  if (!r.ok) throw new Error("forecast unavailable");
+  return r.json();
+}
+async function getAlerts() {
+  try {
+    const r = await fetch(Care.ALERTS_URL, { headers: { Accept: "application/geo+json" } });
+    return r.ok ? (await r.json()).features.map(f => f.properties) : [];
+  } catch (e) { return []; }
+}
+
+function partOfDay(h) {
+  if (h < 5) return "night";
+  if (h < 10) return "morning";
+  if (h < 16) return "midday";
+  if (h < 20) return "evening";
+  return "night";
+}
+
+function buildTasks(now, wx) {
+  const age = $("age").value, pot = $("setting").value === "pot";
+  const month = now.getMonth(), part = partOfDay(now.getHours());
+  const out = [];
+
+  ALERTS.forEach(a => out.push({ cls: Care.COLD_ALERTS.test(a.event) ? "alert" : "watch",
+    items: [`⚠️ <b>National Weather Service: ${a.event}</b>`, a.headline || ""].concat(a.instruction ? [a.instruction] : []) }));
+
+  if (wx) {
+    const d = wx.daily, ti = d.time.indexOf(wx.todayKey);
+    const day = i => ({ date: dayOf(d.time[i]), lo: d.temperature_2m_min[i], hi: d.temperature_2m_max[i],
+      wind: d.wind_speed_10m_max[i], gust: d.wind_gusts_10m_max[i], pop: d.precipitation_probability_max[i] });
+    const next = [0, 1, 2].map(k => ti + k).filter(i => i < d.time.length).map(day);
+    const freeze = next.find(x => x.lo <= T.protect);
+    const frost = next.find(x => x.lo <= T.frost);
+    const hot = next[0] && next[0].hi >= T.hot;
+
+    if (freeze) {
+      const p = ["🔴 <b>Freeze coming " + fmtDay(freeze.date) + " (low " + Math.round(freeze.lo) + "°F).</b>"];
+      if (pot) p.push("Move the container into a garage or enclosed porch the evening before.");
+      else {
+        p.push("1–2 days before: water the soil if it's dry (moist soil releases heat overnight).");
+        p.push("Late afternoon, before sunset: drape frost cloth all the way to the ground (not just over the top) so it traps soil heat; add incandescent (not LED) string lights under it.");
+        if (freeze.wind >= T.windy || freeze.gust >= T.gusty)
+          p.push(`💨 Windy freeze (wind ${Math.round(freeze.wind)} mph, gusts ${Math.round(freeze.gust)} mph): weigh the cloth edges down with bricks or clips. Wind strips heat out of covers, so the lights matter more.`);
+        if (age === "young") p.push("Young tree: make sure the soil bank or trunk wrap is in place.");
+        p.push("The coldest point is just before sunrise. Uncover mid-morning once it's above freezing so the tree doesn't overheat.");
+        if (freeze.lo <= T.hard) p.push("Hard freeze (≤ 26°F): pick any ripe fruit beforehand.");
+      }
+      out.push({ cls: "alert", items: p });
+    } else if (frost) {
+      out.push({ cls: "watch", items: ["🟡 Frost possible " + fmtDay(frost.date) + " (low " + Math.round(frost.lo) +
+        "°F). Have the frost cloth ready and recheck the forecast tomorrow; protect if it drops to 28°F."] });
+    }
+
+    if (hot) {
+      const h = ["🟠 Hot day (" + Math.round(next[0].hi) + "°F)."];
+      h.push(part === "morning" ? "Good time to water now, before the heat." :
+             part === "midday" ? "Don't spray oils or soaps in this heat; wait for evening if it's below 90°F." :
+             "Water early tomorrow morning if the soil is dry 2 in. down.");
+      if (pot) h.push("Containers dry out fast in heat — check daily.");
+      out.push({ cls: "watch", items: h });
+    }
+
+    // Watering: compare last week's rain with water lost to evaporation and the tree (ET0).
+    const rain7 = sum(d.precipitation_sum.slice(Math.max(0, ti - 7), ti));
+    const et7 = sum(d.et0_fao_evapotranspiration.slice(Math.max(0, ti - 7), ti));
+    const deficit = et7 - rain7;
+    const rainSoon = next.slice(0, 2).find(x => x.pop >= 60);
+    const growing = month >= 2 && month <= 9;
+    const need = pot ? 0.4 : growing ? 0.75 : 1.25;
+    const facts = `Last 7 days: ${rain7.toFixed(2)} in. rain vs ${et7.toFixed(2)} in. lost to evaporation and the tree.`;
+    if (deficit > need && rainSoon) {
+      out.push({ cls: "ok", items: [`💧 Soil is drying out, but rain is likely ${fmtDay(rainSoon.date)} (${rainSoon.pop}% chance) — hold off watering.`, facts] });
+    } else if (deficit > need) {
+      out.push({ cls: "watch", items: [`💧 Water deeply ${part === "morning" ? "this morning" : "early tomorrow morning"} — about ${deficit.toFixed(1)} in. short this week` +
+        (growing ? "." : " (the tree is mostly dormant, so one soak is plenty)."), facts] });
+    } else {
+      out.push({ cls: "ok", items: ["💧 No watering needed — rain has kept up with what the tree uses.", facts] });
+    }
+  }
+
+  // Fertilizer reminders keyed to UGA dates for this year
+  const y = now.getFullYear();
+  const fert = [new Date(y, 2, 15), new Date(y, 4, 1), new Date(y, 5, 15)];
+  const soon = fert.find(f => (f - now) / 864e5 >= -3 && (f - now) / 864e5 <= 7);
+  if (soon) out.push({ cls: "ok", items: ["🌱 Fertilize around " + fmtDay(soon) + " with a citrus fertilizer. Spread it evenly under the canopy, out past the drip line, and water it in." +
+    (age === "young" ? " Young trees: use a smaller amount, following the label for the tree's size." : "")] });
+
+  out.push({ cls: "", items: ["<b>This month:</b>"].concat(CALENDAR[month].tasks) });
+  return out;
+}
+
+function renderCalendarLinks() {
+  const qs = `?age=${$("age").value}&setting=${$("setting").value}`;
+  const https = `${location.origin}/calendar.ics${qs}`;
+  const webcal = https.replace(/^https?:/, "webcal:");
+  $("cal-google").href = "https://calendar.google.com/calendar/render?cid=" + encodeURIComponent(webcal);
+  $("cal-url").value = https;
+  $("cal-download").href = https;
+}
+
+function render() {
+  const now = new Date();
+  $("today").textContent = now.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  $("yr").textContent = now.getFullYear();
+
+  if (WX) {
+    const c = Math.round(WX.current.temperature_2m), w = Math.round(WX.current.wind_speed_10m);
+    const s = c <= T.protect ? ["alert", "Freezing — the tree should be covered right now."]
+            : c <= T.frost ? ["watch", "Near freezing — watch the overnight low."]
+            : c >= T.hot ? ["watch", "Hot — water early, skip spraying."]
+            : c < T.cool ? ["ok", "Cool — the tree is mostly dormant."]
+            : ["ok", "Comfortable growing weather."];
+    $("status").className = "card " + s[0];
+    $("status").innerHTML = `<div class="row"><span class="now">${c}°F</span><span>${s[1]}</span>` +
+      `<span class="pill">💨 ${w} mph</span><span class="pill">${partOfDay(now.getHours())}</span></div>`;
+
+    const d = WX.daily, start = d.time.indexOf(WX.todayKey);
+    $("forecast").innerHTML = d.time.slice(start).map((t, k) => {
+      const i = start + k, lo = d.temperature_2m_min[i], hi = d.temperature_2m_max[i];
+      const cls = lo <= T.protect ? "freeze" : lo <= T.frost ? "frost" : hi >= T.hot ? "hot" : "";
+      return `<div class="day ${cls}"><b>${fmtDay(dayOf(t))}</b>${Math.round(hi)}° / ${Math.round(lo)}°` +
+        `<span class="mini">🌧 ${d.precipitation_probability_max[i]}%</span>` +
+        `<span class="mini">💨 ${Math.round(d.wind_speed_10m_max[i])} mph</span></div>`;
+    }).join("");
+  }
+
+  $("tasks").innerHTML = buildTasks(now, WX).map(g =>
+    `<div class="card ${g.cls}" style="margin-bottom:10px"><ul style="list-style:none;padding:0">${g.items.map(i => `<li>${i}</li>`).join("")}</ul></div>`).join("");
+
+  $("months").innerHTML = CALENDAR.map((c, i) =>
+    `<div class="month ${i === now.getMonth() ? "current" : ""}"><h3>${c.m}</h3><ul>${c.tasks.map(t => `<li>${t}</li>`).join("")}</ul></div>`).join("");
+  renderCalendarLinks();
+}
+
+async function init() {
+  loadPrefs();
+  ["age", "setting"].forEach(id => $(id).addEventListener("change", () => { savePrefs(); render(); }));
+  $("cal-copy").addEventListener("click", () => {
+    $("cal-url").select();
+    try { navigator.clipboard.writeText($("cal-url").value); $("cal-copy").textContent = "Copied"; } catch (e) {}
+  });
+  render();
+  const [wx, alerts] = await Promise.all([getWeather().catch(() => null), getAlerts()]);
+  ALERTS = alerts;
+  if (wx) { WX = wx; WX.todayKey = Care.todayKey(); }
+  else $("status").innerHTML = '<span class="muted">Couldn\'t load the forecast. Showing the seasonal calendar only.</span>';
+  render();
+}
+init();
+setInterval(render, 10 * 60 * 1000);
+</script>
+</body>
+</html>
